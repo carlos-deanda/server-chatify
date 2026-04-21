@@ -22,9 +22,9 @@ const pool = new pg.Pool({
 });
 
 
-await db.exec(`
+await pool.query(`
   CREATE TABLE IF NOT EXISTS messages (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id SERIAL PRIMARY KEY,
       client_offset TEXT UNIQUE,
       content TEXT
   );
@@ -41,13 +41,16 @@ io.on('connection', async (socket) => {
 
     if (!socket.recovered) {
         try {
-        await db.each('SELECT id, content FROM messages WHERE id > ?',
-            [socket.handshake.auth.serverOffset || 0],
-            (_err, row) => {
+        const result = await pool.query(
+            'SELECT id, content FROM messages WHERE id > $1 ORDER BY id',
+            [socket.handshake.auth.serverOffset || 0]
+        );
+
+        for (const row of result.rows) {
             socket.emit('chat message', row.content, row.id);
-            }
-        )
+        }
         } catch (e) {
+        console.error('Error fetching messages:', e);
         }
     }
 
@@ -55,11 +58,16 @@ io.on('connection', async (socket) => {
         console.log('message: ' + msg);
         let result;
         try {
-        result = await db.run('INSERT INTO messages (content) VALUES (?)', msg);
+        result = await pool.query(
+            'INSERT INTO messages (content) VALUES ($1) RETURNING id',
+            [msg]
+        );
+        // include the offset with the message
+        io.emit('chat message', msg, result.rows[0].id);
         } catch (e) {
+        console.error('Error inserting message:', e);
         return;
         }
-     io.emit('chat message', msg, result.lastID);
     });
     
     socket.on('disconnect',() => {
@@ -71,6 +79,8 @@ io.on('connection', async (socket) => {
     }
 });
 
-server.listen(3000, () => {
-  console.log('server running at http://localhost:3000');
+// prep for deployment
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`server running on port ${PORT}`);
 });
