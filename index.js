@@ -3,6 +3,7 @@ import express from 'express';
 import { disconnect } from 'node:cluster';
 import { createServer } from 'node:http';
 import { Server } from 'socket.io';
+import pg from "pg"
 
 
 const app = express();
